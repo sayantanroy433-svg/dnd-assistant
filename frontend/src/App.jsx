@@ -28,7 +28,7 @@ function App() {
     setLoading(true);
 
     try {
-      const res = await axios.post("https://dnd-assistant-nmxn.onrender.com/", {
+      const res = await axios.post("https://dnd-assistant-nmxn.onrender.com/chat", {
         message: question
       });
 
