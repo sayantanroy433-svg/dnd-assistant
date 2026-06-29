@@ -67,7 +67,6 @@ def build_context(matches):
 # ---------------- CHAT ---------------- #
 
 def ask(question, history):
-
     matches = retrieve(question)
 
     if not matches:
@@ -93,8 +92,8 @@ Assistant: {item['answer']}
                     "You are a Dungeons & Dragons documentation assistant.\n"
                     "Use ONLY the provided documentation.\n"
                     "Do NOT invent rules.\n"
-                    "Do NOT include sources, citations, or file names in your answer.\n"
-                    "If information is missing, say so clearly.\n"
+                    "Do NOT include sources, citations, or file names.\n"
+                    "If information is missing, say it clearly.\n"
                     "Keep answers concise and use Markdown."
                 )
             },
