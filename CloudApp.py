@@ -1,0 +1,257 @@
+import streamlit as st
+import sys
+import re
+from types import ModuleType
+import importlib.machinery
+
+# Ultimate catch-all dynamic mock with structural loader compliance for Python 3.14
+@st.cache_resource
+def fix_environment_imports():
+    class DummyLoader:
+        def create_module(self, spec): return None
+        def exec_module(self, module): pass
+
+    class DeepMock(ModuleType):
+        def __getattr__(self, name):
+            if name in ('__path__', '__spec__'):
+                return [] if name == '__path__' else None
+            return DeepMock(f"{self.__name__}.{name}")
+        def __call__(self, *args, **kwargs):
+            return None
+
+    class MockFinder:
+        def find_spec(self, fullname, path, target=None):
+            if fullname.startswith("torchvision"):
+                mock = DeepMock(fullname)
+                spec = importlib.machinery.ModuleSpec(fullname, DummyLoader())
+                spec.submodule_search_locations = []
+                mock.__spec__ = spec
+                mock.__path__ = []
+                sys.modules[fullname] = mock
+                return spec
+            return None
+
+    sys.meta_path.insert(0, MockFinder())
+fix_environment_imports()
+
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import HumanMessage, AIMessage
+from pinecone import Pinecone
+import os
+
+# 🎨 CUSTOM STYLING: Dark Fantasy & Tabletop DM Screen Theme
+st.set_page_config(page_title="Pocket D&D Loremaster", page_icon="🧙‍♂️", layout="centered")
+
+st.markdown("""
+<style>
+    /* Global Background and Typography */
+    .stApp {
+        background-color: #1a1613 !important;
+        background-image: radial-gradient(#2d2219 1px, transparent 0) !important;
+        background-size: 24px 24px !important;
+        color: #e3d1be !important;
+        font-family: 'Georgia', serif !important;
+    }
+    
+    /* Header Customization */
+    h1 {
+        color: #d4af37 !important; /* Gold */
+        font-family: 'Georgia', serif !important;
+        text-shadow: 2px 2px 4px #000000;
+        border-bottom: 2px solid #8c2d19; /* Deep Red Crimson line */
+        padding-bottom: 10px;
+    }
+    
+    /* Text Color Normalization */
+    .stMarkdown, p, span, label {
+        color: #e3d1be !important;
+    }
+    
+    /* Input Box Customization */
+    .stChatInput textarea {
+        background-color: #2b221a !important;
+        color: #f5eccd !important;
+        border: 1px solid #8c2d19 !important;
+        border-radius: 4px !important;
+    }
+    
+    /* Spinner Styling */
+    .stSpinner > div {
+        border-top-color: #d4af37 !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+st.title("🧙‍♂️ Your Pocket D&D Loremaster")
+st.markdown("<p style='color: #8a7663; font-style: italic;'>Powered by magic!</p>", unsafe_allow_html=True)
+
+# 🔑 Credentials & Global Instance Configuration
+GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
+PINECONE_API_KEY = st.secrets["PINECONE_API_KEY"]
+PINECONE_INDEX_NAME = "dnd-index"
+
+pc = Pinecone(api_key=PINECONE_API_KEY)
+index = pc.Index(PINECONE_INDEX_NAME)
+
+@st.cache_resource
+def get_llm_service():
+    return ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=GEMINI_API_KEY, temperature=0.2)
+
+llm = get_llm_service()
+
+# Low-latency integrated inference calculation caching
+@st.cache_data(show_spinner=False, ttl=3600)
+def cached_vector_search(query_text):
+    if not query_text:
+        return []
+        
+    # 1. Convert user's question to a 1024-dimension vector payload using global pc client
+    response = pc.inference.embed(
+        model="multilingual-e5-large",
+        inputs=[query_text],
+        parameters={"input_type": "query"}
+    )
+    
+    # 🎯 FIX: Select index [0] to extract from the EmbeddingsList wrapper before calling .values
+    query_vector = response[0].values
+
+    # 2. Query your populated 1024-dimension Pinecone layout
+    results = index.query(
+        namespace="markdown-docs", 
+        vector=query_vector,
+        top_k=4,
+        include_metadata=True
+    )
+    
+    serialized_docs = []
+    matches = results.get("matches", [])
+    
+    # 🎯 PRINT MATCHING SCORES TO CMD TERMINAL
+    print(f"\n--- 🗺️ LOCAL 1024-DIM VECTOR SEARCH RESULTS FOR: '{query_text}' ---")
+    if not matches:
+        print("❌ No matching records returned from index. Ensure upload_index.py succeeded.")
+    
+    for idx, match in enumerate(matches):
+        score = match.get("score", 0.0)
+        meta = match.get("metadata", {})
+        
+        text_content = meta.get("chunk_text", "No context found.")
+        source_book = meta.get("source_file", "Unknown Rulebook")
+        chunk_idx = meta.get("chunk_index", "N/A")
+        
+        # Format the metric matching output for your cmd screen
+        print(f"Match #{idx+1} | Score: {score:.4f} | Source: {source_book} (Chunk {chunk_idx})")
+        
+        source_label = f"📜 {source_book} (Section {chunk_idx})"
+        
+        serialized_docs.append({
+            "page_content": text_content, 
+            "metadata": {"source_label": source_label},
+            "source_label": source_label
+        })
+    print("------------------------------------------------------------------\n")
+    
+    return serialized_docs
+
+class NativePineconeVectorStore:
+    def __init__(self, index):
+        self.index = index
+        
+    def retrieve(self, query_text):
+        from langchain_core.documents import Document
+        raw_docs = cached_vector_search(query_text)
+        return [
+            Document(page_content=d["page_content"], metadata={**d["metadata"], "source_label": d["source_label"]}) 
+            for d in raw_docs
+        ]
+
+vector_store = NativePineconeVectorStore(index)
+
+@st.cache_resource
+def get_prompt_template():
+    system_prompt = (
+        "You are an expert D&D 5e assistant. Answer the user's question using the following "
+        "retrieved context from the rulebooks. If the context does not contain the complete answer or stats, "
+        "rely on your trusted D&D 5e knowledge to fulfill the answer accurately.\n\n"
+        "Context:\n{context}"
+    )
+    return ChatPromptTemplate.from_messages([
+        ("system", system_prompt),
+        MessagesPlaceholder("chat_history"),
+        ("human", "{input}"),
+    ])
+
+qa_prompt = get_prompt_template()
+
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+
+for message in st.session_state.chat_history:
+    with st.chat_message(message["role"]):
+        st.write(message["content"])
+
+user_query = st.chat_input("Ask about a spell, class, or rule:")
+
+if user_query:
+    with st.chat_message("user"):
+        st.write(user_query)
+        
+    with st.spinner("Searching knowledge base..."):
+        search_query = user_query
+        vague_words = {"it", "that", "this", "they", "spell details", "more details", "explain", "him", "her", "them", "there"}
+        has_vague_word = any(word in user_query.lower() for word in vague_words)
+        
+        if len(st.session_state.chat_history) > 0 and has_vague_word:
+            recent_context = " ".join([m['content'] for m in st.session_state.chat_history[-2:]])
+            entities = set(re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', recent_context))
+            blacklisted_words = {"the", "i", "you", "he", "she", "it", "they", "this", "that", "a", "an", "and", "but", "my", "your", "we", "our"}
+            entities = {e for e in entities if e.lower() not in blacklisted_words}
+            
+            if entities:
+                search_query = f"{user_query} {' '.join(entities)}"
+            else:
+                last_user_msg = next((m['content'] for m in reversed(st.session_state.chat_history) if m['role'] == 'user'), "")
+                search_query = f"{last_user_msg} {user_query}"
+
+        matched_docs = vector_store.retrieve(search_query)
+        unique_sources = list(set([doc.metadata["source_label"] for doc in matched_docs if "source_label" in doc.metadata]))
+        
+        formatted_history = [
+            HumanMessage(content=m["content"]) if m["role"] == "user" else AIMessage(content=m["content"])
+            for m in st.session_state.chat_history[-4:]
+        ]
+
+        context_str = "\n\n".join([doc.page_content for doc in matched_docs if doc.page_content != "No context found."])
+        
+        messages = qa_prompt.format_messages(
+            context=context_str,
+            chat_history=formatted_history,
+            input=user_query
+        )
+
+    with st.chat_message("assistant"):
+        response_placeholder = st.empty()
+        full_response = ""
+        
+        try:
+            for chunk in llm.stream(messages):
+                if chunk and hasattr(chunk, 'content'):
+                    full_response += chunk.content
+                    response_placeholder.write(full_response + "▌")
+        except Exception as e:
+            full_response = f"⚠️ Runtime Connection Issue: {str(e)}"
+            
+        if not full_response.strip():
+            full_response = "🧙‍♂️ The Loremaster could not assemble an answer. Try rephrasing your question."
+            
+        response_placeholder.write(full_response)
+        
+        # 📌 VERIFIED SOURCES CITATION DISPLAY WITH SOURCE CONTEXT SNIPPETS
+        if unique_sources and "could not assemble" not in full_response:
+            sources_html = "<div style='margin-top: 15px; padding-top: 8px; border-top: 1px dashed #614e3f; color: #a18b76; font-size: 0.85em; font-style: italic;'>---</div>"
+            st.markdown(sources_html, unsafe_allow_html=True)
+            
+            for source in unique_sources:
+                with st.expander(source):
+                    matching_text = next((doc.page_content for doc in matched_docs if doc.metadata.get("source_label") == source), "Context block read error.")
