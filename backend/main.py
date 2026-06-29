@@ -24,11 +24,14 @@ history = []
 
 @app.post("/chat")
 def chat(req: ChatRequest):
-    answer = ask(req.message, history)
+    answer, sources = ask(req.message, history)
 
     history.append({
         "question": req.message,
         "answer": answer
     })
 
-    return {"answer": answer}
+    return {
+        "answer": answer,
+        "sources": sources
+    }
