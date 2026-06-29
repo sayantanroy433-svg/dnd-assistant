@@ -166,10 +166,9 @@ Question:
             
             answer += delta
 
-    answer += "\n\n### Sources\n"
-
-    for source in sources:
-        answer += f"- {source}\n"
+answer = answer.strip()
+answer += "\n\n### Sources\n"
+answer += "\n".join(f"- {s}" for s in sorted(set(sources)))
 
     print("\n\nSources:")
 
