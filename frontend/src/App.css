@@ -3,12 +3,21 @@ body {
   background: #111827;
   color: white;
   font-family: Arial, sans-serif;
+
+  /* prevents mobile scroll/keyboard glitches */
+  height: 100%;
+}
+
+html {
+  height: 100%;
 }
 
 .app {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+
+  /* FIX: better than 100vh on mobile */
+  height: 100dvh;
 }
 
 .header {
@@ -16,12 +25,16 @@ body {
   background: #1f2937;
   font-size: 22px;
   font-weight: bold;
+  flex-shrink: 0;
 }
 
 .chat {
   flex: 1;
   overflow-y: auto;
   padding: 20px;
+
+  /* smoother mobile scrolling */
+  -webkit-overflow-scrolling: touch;
 }
 
 .user {
@@ -43,8 +56,17 @@ body {
 
 .inputBar {
   display: flex;
-  padding: 15px;
+  padding: 12px;
   background: #1f2937;
+
+  /* IMPORTANT: keeps input above keyboard */
+  position: sticky;
+  bottom: 0;
+
+  /* prevents overlap on iOS */
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+
+  flex-shrink: 0;
 }
 
 input {
@@ -53,6 +75,7 @@ input {
   font-size: 16px;
   border-radius: 8px;
   border: none;
+  outline: none;
 }
 
 button {
