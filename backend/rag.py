@@ -70,11 +70,7 @@ def build_context(matches):
 
         sources.append(source)
 
-        context.append(
-            f"""
-SOURCE: {source}
-
-{text}
+        context.append(text)
 """
         )
 
