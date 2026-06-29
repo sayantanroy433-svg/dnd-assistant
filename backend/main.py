@@ -5,6 +5,8 @@ from rag import ask
 
 app = FastAPI(title="D&D Assistant")
 
+# ---------------- CORS ---------------- #
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -13,17 +15,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ---------------- REQUEST MODEL ---------------- #
+
 class ChatRequest(BaseModel):
     message: str
+
+
+# ---------------- ROOT ---------------- #
 
 @app.get("/")
 def root():
     return {"status": "running"}
 
+
+# ---------------- MEMORY (SIMPLE) ---------------- #
+
 history = []
+
+
+# ---------------- CHAT ENDPOINT ---------------- #
 
 @app.post("/chat")
 def chat(req: ChatRequest):
+
     answer, sources = ask(req.message, history)
 
     history.append({
