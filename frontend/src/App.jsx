@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import axios from "axios";
 import ReactMarkdown from "react-markdown";
 import "./App.css";
@@ -14,42 +14,52 @@ function App() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
 
-async function sendMessage() {
-  if (!input.trim() || loading) return;
+  // 👇 scroll anchor
+  const messagesEndRef = useRef(null);
 
-  setLoading(true); // lock immediately
+  // 👇 auto scroll on every update
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
 
-  const question = input;
-  setInput("");
+  async function sendMessage() {
+    if (!input.trim() || loading) return;
 
-  setMessages((prev) => [
-    ...prev,
-    { role: "user", text: question }
-  ]);
+    const question = input;
 
-  try {
-    const res = await axios.post(
-      "https://dnd-assistant-nmxn.onrender.com/chat",
-      { message: question }
-    );
+    setInput("");
+    setLoading(true);
 
+    // add user message
     setMessages((prev) => [
       ...prev,
-      { role: "assistant", text: res.data.answer }
+      { role: "user", text: question }
     ]);
 
-  } catch (err) {
-    setMessages((prev) => [
-      ...prev,
-      {
-        role: "assistant",
-        text: "❌ Unable to reach the backend."
-      }
-    ]);
+    try {
+      const res = await axios.post(
+        "https://dnd-assistant-nmxn.onrender.com/chat",
+        { message: question }
+      );
+
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", text: res.data.answer }
+      ]);
+
+    } catch (err) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          text: "❌ Unable to reach the backend."
+        }
+      ]);
+    }
+
+    setLoading(false);
   }
 
-  setLoading(false);
-}
   return (
     <div className="app">
 
@@ -60,14 +70,12 @@ async function sendMessage() {
       <div className="chat">
 
         {messages.map((m, i) => (
-
           <div
             key={i}
             className={m.role === "user" ? "user" : "assistant"}
           >
             <ReactMarkdown>{m.text}</ReactMarkdown>
           </div>
-
         ))}
 
         {loading && (
@@ -76,6 +84,8 @@ async function sendMessage() {
           </div>
         )}
 
+        {/* 👇 scroll target */}
+        <div ref={messagesEndRef} />
       </div>
 
       <div className="inputBar">
@@ -85,8 +95,7 @@ async function sendMessage() {
           placeholder="Ask about D&D..."
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter")
-              sendMessage();
+            if (e.key === "Enter") sendMessage();
           }}
         />
 
