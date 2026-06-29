@@ -14,44 +14,42 @@ function App() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function sendMessage() {
-    if (!input.trim() || loading) return;
+async function sendMessage() {
+  if (!input.trim() || loading) return;
 
-    const question = input;
+  setLoading(true); // lock immediately
+
+  const question = input;
+  setInput("");
+
+  setMessages((prev) => [
+    ...prev,
+    { role: "user", text: question }
+  ]);
+
+  try {
+    const res = await axios.post(
+      "https://dnd-assistant-nmxn.onrender.com/chat",
+      { message: question }
+    );
 
     setMessages((prev) => [
       ...prev,
-      { role: "user", text: question }
+      { role: "assistant", text: res.data.answer }
     ]);
 
-    setInput("");
-    setLoading(true);
-
-    try {
-      const res = await axios.post("https://dnd-assistant-nmxn.onrender.com/chat", {
-        message: question
-      });
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          text: res.data.answer
-        }
-      ]);
-    } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          text: "❌ Unable to reach the backend."
-        }
-      ]);
-    }
-
-    setLoading(false);
+  } catch (err) {
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "assistant",
+        text: "❌ Unable to reach the backend."
+      }
+    ]);
   }
 
+  setLoading(false);
+}
   return (
     <div className="app">
 
