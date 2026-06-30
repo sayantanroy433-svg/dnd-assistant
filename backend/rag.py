@@ -1,6 +1,7 @@
 import os
+import time
 from dotenv import load_dotenv
-from groq import Groq
+from groq import Groq, RateLimitError
 from pinecone import Pinecone
 from parser import parse_query, build_filter
 
@@ -15,7 +16,6 @@ PINECONE_API_KEY = os.environ["PINECONE_API_KEY"]
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 
 NAMESPACE = "dnddocs"
-
 EMBEDDING_MODEL = "multilingual-e5-large"
 
 TOP_K = 4
@@ -26,9 +26,7 @@ MIN_SCORE = 0.80
 # ==========================================================
 
 pc = Pinecone(api_key=PINECONE_API_KEY)
-
 index = pc.Index(PINECONE_INDEX)
-
 client = Groq(api_key=GROQ_API_KEY)
 
 # ==========================================================
@@ -41,7 +39,6 @@ You are an expert Dungeons & Dragons 5e rules assistant.
 Your job is to answer ONLY from the supplied documentation.
 
 Rules:
-
 1. Never invent rules.
 2. Never rely on outside knowledge.
 3. If the answer is missing, say:
@@ -60,15 +57,12 @@ Rules:
 def retrieve(question):
 
     parsed = parse_query(question)
-
     metadata_filter = build_filter(parsed)
 
     embedding = pc.inference.embed(
         model=EMBEDDING_MODEL,
         inputs=[question],
-        parameters={
-            "input_type": "query"
-        }
+        parameters={"input_type": "query"}
     )
 
     vector = embedding[0].values
@@ -83,43 +77,17 @@ def retrieve(question):
     if metadata_filter:
         query_args["filter"] = metadata_filter
 
-    print("\n========== RETRIEVAL ==========")
-    print("Question:", question)
-    print("Parsed:", parsed)
-    print("Metadata Filter:", metadata_filter)
-
-    # ---------------- First Search ---------------- #
-
     result = index.query(**query_args)
 
-    matches = [
-        m for m in result.matches
-        if m.score >= MIN_SCORE
-    ]
-
-    print(f"Filtered Results: {len(matches)}")
-
-    # ---------------- Fallback ---------------- #
+    matches = [m for m in result.matches if m.score >= MIN_SCORE]
 
     if not matches and metadata_filter:
-
-        print("No filtered matches.")
-        print("Falling back to semantic search...")
-
         query_args.pop("filter", None)
-
         result = index.query(**query_args)
-
-        matches = [
-            m for m in result.matches
-            if m.score >= MIN_SCORE
-        ]
-
-        print(f"Fallback Results: {len(matches)}")
-
-    print("===============================\n")
+        matches = [m for m in result.matches if m.score >= MIN_SCORE]
 
     return parsed, matches
+
 
 # ==========================================================
 # CONTEXT BUILDER
@@ -128,7 +96,6 @@ def retrieve(question):
 def build_context(matches):
 
     context_blocks = []
-
     sources = []
 
     for i, match in enumerate(matches, start=1):
@@ -138,22 +105,17 @@ def build_context(matches):
         source = md.get("source_file", "Unknown")
         text = md.get("chunk_text", "")[:800]
 
-        book = md.get("book", "")
-        section = md.get("section", "")
-        page = md.get("page", "")
-        entity_type = md.get("type", "")
-
         sources.append(source)
 
         block = f"""
 Document #{i}
 
 Source: {source}
-Book: {book}
-Section: {section}
-Page: {page}
-Type: {entity_type}
-Similarity Score: {match.score:.3f}
+Book: {md.get('book', '')}
+Section: {md.get('section', '')}
+Page: {md.get('page', '')}
+Type: {md.get('type', '')}
+Score: {match.score:.3f}
 
 {text}
 """
@@ -161,152 +123,100 @@ Similarity Score: {match.score:.3f}
         context_blocks.append(block)
 
     context = "\n\n----------------------------------------\n\n".join(context_blocks)
-
     sources = sorted(set(sources))
 
     return context, sources
-    
- # ==========================================================
+
+
+# ==========================================================
 # CHAT
 # ==========================================================
 
 def ask(question, history):
 
-    # ---------------- Retrieve ---------------- #
-
     parsed, matches = retrieve(question)
 
-    print("\n========== CHAT ==========")
-    print("Parsed Query:")
-    print(parsed)
-
-    print(f"\nRetrieved Chunks: {len(matches)}")
-
     if not matches:
-
         return (
             "I couldn't find that information in the documentation.\n\n"
-            "Try:\n"
-            "- using the exact spell, monster, class feature, or item name\n"
-            "- mentioning the source book (PHB, DMG, MM, XGtE, etc.)\n"
-            "- asking a more specific question"
+            "Try more specific terms or source books like PHB or DMG."
         )
-
-    # ---------------- Build Context ---------------- #
 
     context, sources = build_context(matches)
 
-    # ---------------- Conversation History ---------------- #
-
     MAX_HISTORY = 2
 
-    conversation = []
-
-    for item in history[-MAX_HISTORY:]:
-
-        conversation.append(
-            f"""User:
-{item["question"]}
-
-Assistant:
-{item["answer"]}"""
-        )
-
-    previous_chat = "\n\n".join(conversation)
-
-    # ---------------- Prompt ---------------- #
+    previous_chat = "\n\n".join([
+        f"User:\n{h['question']}\n\nAssistant:\n{h['answer']}"
+        for h in history[-MAX_HISTORY:]
+    ])
 
     content = f"""
 Previous Conversation
-
 {previous_chat}
 
 ==================================================
 
 Documentation
-
 {context}
 
 ==================================================
 
 Question
-
 {question}
 
-==================================================
-
-Instructions
-
-Answer ONLY using the supplied documentation.
-
-If multiple documents contain useful information,
-combine them into a single answer.
-
-Never invent rules.
-
-If the answer cannot be found in the documentation,
-say exactly:
-
-"I couldn't find that information in the documentation."
-
-Do not mention document numbers.
-
-Use Markdown formatting.
+Answer ONLY from documentation.
 """
 
-    # ---------------- LLM ---------------- #
+    # ==========================================================
+    # LLM CALL (WITH RATE LIMIT SAFETY)
+    # ==========================================================
 
-    stream = client.chat.completions.create(
+    def call_llm():
+        return client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            temperature=0.2,
+            stream=True,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": content}
+            ]
+        )
 
-        model="llama-3.3-70b-versatile",
+    stream = None
 
-        temperature=0.2,
+    for attempt in range(3):
+        try:
+            stream = call_llm()
+            break
+        except RateLimitError:
+            print(f"Rate limit hit. Retry {attempt+1}/3...")
+            time.sleep(15)
+    else:
+        return "Rate limit exceeded. Try again later."
 
-        stream=True,
-
-        messages=[
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT
-            },
-            {
-                "role": "user",
-                "content": content
-            }
-        ]
-
-    )
-
-    # ---------------- Stream Response ---------------- #
+    # ==========================================================
+    # STREAM RESPONSE
+    # ==========================================================
 
     answer = ""
-
     print("\nGenerating response...\n")
 
     for chunk in stream:
         try:
             delta = chunk.choices[0].delta
-
             if delta and delta.content:
                 print(delta.content, end="", flush=True)
                 answer += delta.content
-
         except Exception as e:
             print("Stream error:", e)
 
-    # ---------------- Sources ---------------- #
+    # ==========================================================
+    # SOURCES
+    # ==========================================================
 
-    answer += "\n\n---\n"
-    answer += "### Sources\n\n"
-
+    answer += "\n\n---\n### Sources\n\n"
     for i, source in enumerate(sources, start=1):
         answer += f"{i}. {source}\n"
-
-    print("\nSources Used:")
-
-    for source in sources:
-        print(f"- {source}")
-
-    print("\n==========================\n")
 
     return answer
