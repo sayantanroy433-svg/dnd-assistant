@@ -3,7 +3,7 @@ import time
 from dotenv import load_dotenv
 from groq import Groq, RateLimitError
 from pinecone import Pinecone
-from parser import parse_query, build_filter
+from query_parser import parse_query, build_filter
 
 load_dotenv()
 
