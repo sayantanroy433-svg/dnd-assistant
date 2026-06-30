@@ -53,6 +53,8 @@ Rules:
 11. Format your answer like this:
     - Level
     - School
+    - Casting Time
+    - Duration
     - Range
     - Damage
     - Summary (max 3 lines)
