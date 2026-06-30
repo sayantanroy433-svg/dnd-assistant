@@ -1,9 +1,8 @@
 import os
-import time
 from dotenv import load_dotenv
-from groq import Groq, RateLimitError
+from groq import Groq
 from pinecone import Pinecone
-from query_parser import parse_query, build_filter
+from parser import parse_query, build_filter
 
 load_dotenv()
 
@@ -16,10 +15,21 @@ PINECONE_API_KEY = os.environ["PINECONE_API_KEY"]
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 
 NAMESPACE = "dnddocs"
+
 EMBEDDING_MODEL = "multilingual-e5-large"
 
-TOP_K = 4
+TOP_K = 10
 MIN_SCORE = 0.80
+
+# ==========================================================
+# MODEL FALLBACKS (NEW)
+# ==========================================================
+
+MODELS = [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "mixtral-8x7b-32768"
+]
 
 # ==========================================================
 # CLIENTS
@@ -48,16 +58,6 @@ Rules:
 6. Use Markdown formatting.
 7. Keep answers concise unless the user requests detail.
 8. Do not mention internal document numbers.
-9. Do not list all classes or subclasses unless explicitly asked.
-10. Summarize long lists instead of expanding them.
-11. Format your answer like this:
-    - Level
-    - School
-    - Casting Time
-    - Duration
-    - Range
-    - Damage
-    - Summary (max 3 lines)
 """
 
 # ==========================================================
@@ -98,7 +98,6 @@ def retrieve(question):
 
     return parsed, matches
 
-
 # ==========================================================
 # CONTEXT BUILDER
 # ==========================================================
@@ -125,7 +124,7 @@ Book: {md.get('book', '')}
 Section: {md.get('section', '')}
 Page: {md.get('page', '')}
 Type: {md.get('type', '')}
-Score: {match.score:.3f}
+Similarity Score: {match.score:.3f}
 
 {text}
 """
@@ -137,6 +136,29 @@ Score: {match.score:.3f}
 
     return context, sources
 
+# ==========================================================
+# LLM FALLBACK (NEW)
+# ==========================================================
+
+def call_llm(messages, temperature=0.2, stream=True):
+    last_error = None
+
+    for model in MODELS:
+        try:
+            print(f"\nTrying model: {model}\n")
+
+            return client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                stream=stream
+            ), model
+
+        except Exception as e:
+            print(f"Model failed: {model} → {e}")
+            last_error = e
+
+    raise last_error
 
 # ==========================================================
 # CHAT
@@ -149,68 +171,58 @@ def ask(question, history):
     if not matches:
         return (
             "I couldn't find that information in the documentation.\n\n"
-            "Try more specific terms or source books like PHB or DMG."
+            "Try:\n"
+            "- exact spell/feature/item name\n"
+            "- specifying book (PHB, DMG, etc.)\n"
         )
 
     context, sources = build_context(matches)
 
     MAX_HISTORY = 2
+    conversation = []
 
-    previous_chat = "\n\n".join([
-        f"User:\n{h['question']}\n\nAssistant:\n{h['answer']}"
-        for h in history[-MAX_HISTORY:]
-    ])
+    for item in history[-MAX_HISTORY:]:
+        conversation.append(f"""
+User:
+{item["question"]}
+
+Assistant:
+{item["answer"]}
+""")
+
+    previous_chat = "\n\n".join(conversation)
 
     content = f"""
 Previous Conversation
+
 {previous_chat}
 
 ==================================================
 
 Documentation
+
 {context}
 
 ==================================================
 
 Question
-{question}
 
-Answer ONLY from documentation.
+{question}
 """
 
-    # ==========================================================
-    # LLM CALL (WITH RATE LIMIT SAFETY)
-    # ==========================================================
+    stream, used_model = call_llm(
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": content}
+        ],
+        temperature=0.2,
+        stream=True
+    )
 
-    def call_llm():
-        return client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            temperature=0.2,
-            stream=True,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": content}
-            ]
-        )
-
-    stream = None
-
-    for attempt in range(3):
-        try:
-            stream = call_llm()
-            break
-        except RateLimitError:
-            print(f"Rate limit hit. Retry {attempt+1}/3...")
-            time.sleep(15)
-    else:
-        return "Rate limit exceeded. Try again later."
-
-    # ==========================================================
-    # STREAM RESPONSE
-    # ==========================================================
+    print("\nGenerating response...\n")
+    print(f"Model used: {used_model}\n")
 
     answer = ""
-    print("\nGenerating response...\n")
 
     for chunk in stream:
         try:
@@ -221,16 +233,9 @@ Answer ONLY from documentation.
         except Exception as e:
             print("Stream error:", e)
 
-    # ==========================================================
-    # SOURCES
-    # ==========================================================
-
     answer += "\n\n---\n### Sources\n\n"
+
     for i, source in enumerate(sources, start=1):
         answer += f"{i}. {source}\n"
 
-    return answer,sources
-
-
-
-
+    return answer, sources
