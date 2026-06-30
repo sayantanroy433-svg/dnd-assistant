@@ -229,4 +229,8 @@ Answer ONLY from documentation.
     for i, source in enumerate(sources, start=1):
         answer += f"{i}. {source}\n"
 
-    return answer
+    return answer,sources
+
+
+
+
