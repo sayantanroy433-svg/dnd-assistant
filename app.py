@@ -14,16 +14,16 @@ while True:
     if q.lower() in ["exit", "quit"]:
         break
 
-    print("\nAssistant:", end=" ", flush=True)
+    print("\nAssistant:")
 
-    answer = ask(q, history)
+    answer, sources = ask(q, history)
+
 
     history.append({
         "question": q,
         "answer": answer
     })
 
-    # Keep only the last 5 exchanges
     history = history[-5:]
 
-    print("\n")
+    print()
