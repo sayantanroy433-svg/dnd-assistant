@@ -48,6 +48,8 @@ Rules:
 6. Use Markdown formatting.
 7. Keep answers concise unless the user requests detail.
 8. Do not mention internal document numbers.
+9. Do not list all classes or subclasses unless explicitly asked.
+10. Summarize long lists instead of expanding them.
 """
 
 # ==========================================================
