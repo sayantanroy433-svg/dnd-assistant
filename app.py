@@ -18,7 +18,7 @@ while True:
 
     answer, sources = ask(q, history)
 
-
+    print (answer)
     history.append({
         "question": q,
         "answer": answer
