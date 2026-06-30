@@ -50,6 +50,12 @@ Rules:
 8. Do not mention internal document numbers.
 9. Do not list all classes or subclasses unless explicitly asked.
 10. Summarize long lists instead of expanding them.
+11. Format your answer like this:
+    - Level
+    - School
+    - Range
+    - Damage
+    - Summary (max 3 lines)
 """
 
 # ==========================================================
