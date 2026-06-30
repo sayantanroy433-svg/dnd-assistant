@@ -1,3 +1,5 @@
+import re
+
 # ==========================================================
 # QUERY PARSER
 # ==========================================================
@@ -10,10 +12,12 @@ def parse_query(question: str):
         "book": None,
         "entity": None,
         "spell_level": None,
+        "class": None,
         "raw": question
     }
 
     # ---------------- Book detection ---------------- #
+
     books = {
         "phb": "phb",
         "dmg": "dmg",
@@ -30,6 +34,7 @@ def parse_query(question: str):
             parsed["book"] = key
 
     # ---------------- Entity detection ---------------- #
+
     entity_types = [
         "spell",
         "monster",
@@ -49,6 +54,7 @@ def parse_query(question: str):
             parsed["entity"] = e
 
     # ---------------- Spell level detection ---------------- #
+
     spell_levels = {
         "cantrip": 0,
         "1st": 1,
@@ -66,24 +72,48 @@ def parse_query(question: str):
         if word in q:
             parsed["spell_level"] = level
 
+    # NEW: detect "level 3" or "lvl 3"
+
+    m = re.search(r"(?:lvl|level)\s*(\d)", q)
+    if m:
+        parsed["spell_level"] = int(m.group(1))
+
+    # ---------------- Class detection ---------------- #
+
+    classes = [
+        "barbarian",
+        "bard",
+        "cleric",
+        "druid",
+        "fighter",
+        "monk",
+        "paladin",
+        "ranger",
+        "rogue",
+        "sorcerer",
+        "warlock",
+        "wizard"
+    ]
+
+    for c in classes:
+        if c in q:
+            parsed["class"] = c.title()
+
     return parsed
 
 
 # ==========================================================
-# METADATA FILTER BUILDER
+# FILTER BUILDER
 # ==========================================================
 
 def build_filter(parsed):
 
     metadata_filter = {}
 
-    if parsed.get("book"):
-        metadata_filter["book"] = {"$eq": parsed["book"]}
-
-    if parsed.get("entity"):
+    if parsed["entity"]:
         metadata_filter["type"] = {"$eq": parsed["entity"]}
 
-    if parsed.get("spell_level") is not None:
-        metadata_filter["spell_level"] = {"$eq": parsed["spell_level"]}
+    if parsed["spell_level"] is not None:
+        metadata_filter["level"] = {"$eq": parsed["spell_level"]}
 
     return metadata_filter
