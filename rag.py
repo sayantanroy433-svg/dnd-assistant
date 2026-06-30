@@ -14,12 +14,12 @@ PINECONE_INDEX = os.environ["PINECONE_INDEX"]
 PINECONE_API_KEY = os.environ["PINECONE_API_KEY"]
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 
-NAMESPACE = "markdown-docs"
+NAMESPACE = "dnddocs"
 
 EMBEDDING_MODEL = "multilingual-e5-large"
 
-TOP_K = 8
-MIN_SCORE = 0.75
+TOP_K = 4
+MIN_SCORE = 0.80
 
 # ==========================================================
 # CLIENTS
@@ -136,7 +136,7 @@ def build_context(matches):
         md = match.metadata
 
         source = md.get("source_file", "Unknown")
-        text = md.get("chunk_text", "")
+        text = md.get("chunk_text", "")[:800]
 
         book = md.get("book", "")
         section = md.get("section", "")
@@ -198,7 +198,7 @@ def ask(question, history):
 
     # ---------------- Conversation History ---------------- #
 
-    MAX_HISTORY = 5
+    MAX_HISTORY = 2
 
     conversation = []
 
@@ -284,11 +284,15 @@ Use Markdown formatting.
     print("\nGenerating response...\n")
 
     for chunk in stream:
+        try:
+            delta = chunk.choices[0].delta
 
-        delta = chunk.choices[0].delta.content
+            if delta and delta.content:
+                print(delta.content, end="", flush=True)
+                answer += delta.content
 
-        if delta:
-            answer += delta
+        except Exception as e:
+            print("Stream error:", e)
 
     # ---------------- Sources ---------------- #
 
