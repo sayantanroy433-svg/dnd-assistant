@@ -113,7 +113,7 @@ def build_context(matches):
         md = match.metadata
 
         source = md.get("source_file", "Unknown")
-        text = md.get("chunk_text", "")[:800]
+        text = md.get("chunk_text", "")
 
         sources.append(source)
 
