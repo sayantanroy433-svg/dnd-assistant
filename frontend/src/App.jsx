@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import axios from "axios";
 import ReactMarkdown from "react-markdown";
 import "./App.css";
@@ -14,23 +14,39 @@ function App() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const messagesEndRef = useRef(null);
+
+  // Auto-scroll whenever messages or loading state changes
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({
+      behavior: "smooth"
+    });
+  }, [messages, loading]);
+
   async function sendMessage() {
     if (!input.trim() || loading) return;
 
     const question = input;
 
-    setMessages((prev) => [
-      ...prev,
-      { role: "user", text: question }
-    ]);
-
     setInput("");
     setLoading(true);
 
+    // Add user message immediately
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "user",
+        text: question
+      }
+    ]);
+
     try {
-      const res = await axios.post("http://127.0.0.1:8000/chat", {
-        message: question
-      });
+      const res = await axios.post(
+        "https://dnd-assistant-nmxn.onrender.com/chat",
+        {
+          message: question
+        }
+      );
 
       setMessages((prev) => [
         ...prev,
@@ -62,21 +78,34 @@ function App() {
       <div className="chat">
 
         {messages.map((m, i) => (
-
           <div
             key={i}
-            className={m.role === "user" ? "user" : "assistant"}
+            className={`message ${m.role}`}
           >
-            <ReactMarkdown>{m.text}</ReactMarkdown>
-          </div>
+            <div className="avatar">
+              {m.role === "user" ? "👤" : "🐉"}
+            </div>
 
+            <div className="bubble">
+              <ReactMarkdown>{m.text}</ReactMarkdown>
+            </div>
+          </div>
         ))}
 
         {loading && (
-          <div className="assistant">
-            Thinking...
+          <div className="message assistant">
+            <div className="avatar">
+              🐉
+            </div>
+
+            <div className="bubble">
+              Thinking...
+            </div>
           </div>
         )}
+
+        {/* Auto-scroll target */}
+        <div ref={messagesEndRef} />
 
       </div>
 
@@ -87,13 +116,18 @@ function App() {
           placeholder="Ask about D&D..."
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter")
+            if (e.key === "Enter") {
               sendMessage();
+            }
           }}
+          disabled={loading}
         />
 
-        <button onClick={sendMessage}>
-          Send
+        <button
+          onClick={sendMessage}
+          disabled={loading}
+        >
+          {loading ? "..." : "Send"}
         </button>
 
       </div>
